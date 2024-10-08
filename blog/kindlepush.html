@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="author" content=""><title>利用Scrapy + gitbook做kindle电子报推送 | Jekyll 主题 Persephone</title>
+  <meta name="keywords" content="kindle, Python, kindle推送, Scrapy, Gitbook">
+  <meta name="description" content="基于python、scrapy、gitbook制作新闻电子报并定时推送到kindle的过程方法分享。"><link rel="stylesheet" href="/assets/main.css?v=0.3.3" />
+<script src="/assets/main.js?v=0.3.3" defer></script><link rel="stylesheet" href="/assets/css/tomorrow.css" />
+<script src="/assets/js/highlight.js"></script><script src="https://unpkg.com/mermaid@7.1.0/dist/mermaid.min.js" defer></script></head>
+<body class="body-post">
+    <a href="/" class="logo"><img src="https://erlim.oss-cn-hongkong.aliyuncs.com/img/logo.svg" class="logo_img"><h1>Jekyll 主题 Persephone</h1>
+</a><main class="post__wrapper"><nav class="top-nav">
+
+<a href="https://erl.im" class="nav-link ">叶夕青兮</a>
+
+
+</nav><div class="post__top_navs clearfix">
+    <nav class="post__archive_path"><a href="/blog/" id="archiveBtn">
+        <div class="post__archive_icon">
+          <svg width="40" height="40">
+            <circle class="circle-progress" r="18" cy="20" cx="20"  stroke-linejoin="round" stroke-linecap="round" />
+          </svg>
+          <span class="post__archive_icon"></span>
+        </div>
+        博客
+      </a>
+    </nav>
+  </div>
+  <article class="post">
+    <header class="post__header">
+      <h1 class="post__title">利用Scrapy + gitbook做kindle电子报推送</h1>
+      <div class="post__meta">
+        <time>2018-08-25 12:34</time>
+      </div>
+    </header>
+    <div class="post__content content">
+      <p>kindle刚买来没多久的时候，用过狗耳朵日报做每日电子报推送。后来觉得没什么用途，便弃之不用了。前一阵子忽然觉得我的生活过于与世隔绝了，于是便想再启用kindle的电子报推送功能。对比了一下决定用kindle4rss，买了一年的付费版。</p>
+
+<!--more-->
+
+<p>也是我自己的粗心大意，将近一个月我才发现，订阅的参考消息很多内容不全。对比一下网页版的，只有第一页的内容，而且文章里没有任何提示。导致我一度以为参考消息质量验证严重下降，文不对题。与客服交涉无果之后，我决定，作为一个有手有脚的程序员，还是自己动手吧！</p>
+
+<p><strong>原则：</strong> 简单，开发快捷，利用一个星期工作日的午休时间搞定。</p>
+
+<p>思路也很简单：</p>
+
+<pre><code class="language-mermaid">graph LR;
+  内容抓取 --&gt; 制作电子书;
+  制作电子书--&gt;推送;
+</code></pre>
+
+<p>对比着已知常用、不需要学习成本的工具，那就是：</p>
+
+<pre><code class="language-mermaid">graph LR;
+  Scrapy抓取--&gt;Gitbook制作电子书;
+  Gitbook制作电子书--&gt;发送email;
+</code></pre>
+
+<h2 id="内容抓取">内容抓取</h2>
+
+<p>第一版，只抓参考消息国际频道。</p>
+
+<h3 id="抓取">抓取</h3>
+
+<p>分析一下页面，翻页是js效果实现的，请求的 <code class="language-plaintext highlighter-rouge">json</code> 数据里，<code class="language-plaintext highlighter-rouge">data</code> 是列表的html。</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># 初始地址
+</span><span class="n">start_urls</span> <span class="o">=</span> <span class="p">[</span><span class="sh">'</span><span class="s">http://app.cankaoxiaoxi.com/?app=shlist&amp;controller=milzuixin&amp;action=world&amp;page=1&amp;pagesize=20</span><span class="sh">'</span><span class="p">]</span>
+</code></pre></div></div>
+
+<p>简单处理，拿到列表中每个链接。</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">body</span> <span class="o">=</span> <span class="n">response</span><span class="p">.</span><span class="n">body</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+<span class="n">body</span> <span class="o">=</span> <span class="n">json</span><span class="p">.</span><span class="nf">loads</span><span class="p">(</span><span class="n">body</span><span class="p">)</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">body</span><span class="p">[</span><span class="sh">"</span><span class="s">data</span><span class="sh">"</span><span class="p">]</span>
+<span class="n">links</span> <span class="o">=</span> <span class="nc">Selector</span><span class="p">(</span><span class="n">text</span><span class="o">=</span><span class="n">data</span><span class="p">).</span><span class="nf">xpath</span><span class="p">(</span><span class="sh">"</span><span class="s">//a/@href</span><span class="sh">"</span><span class="p">).</span><span class="nf">extract</span><span class="p">()</span>
+</code></pre></div></div>
+
+<p>新闻要的就是时效性，所以只拿最新数据即可。简单做，就不去翻页，只拿列表里的第一页（多了我也看不完），并做时间判断。</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">date</span> <span class="o">=</span> <span class="n">datetime</span><span class="p">.</span><span class="n">datetime</span><span class="p">.</span><span class="nf">strftime</span><span class="p">(</span><span class="n">datetime</span><span class="p">.</span><span class="n">datetime</span><span class="p">.</span><span class="nf">now</span><span class="p">(),</span> <span class="sh">"</span><span class="s">%Y%m%d</span><span class="sh">"</span><span class="p">)</span>
+
+<span class="k">for</span> <span class="n">link</span> <span class="ow">in</span> <span class="n">links</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">date</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">link</span><span class="p">:</span>
+        <span class="k">return</span>
+    <span class="k">yield</span> <span class="n">scrapy</span><span class="p">.</span><span class="nc">Request</span><span class="p">(</span><span class="n">link</span><span class="p">,</span> <span class="n">self</span><span class="p">.</span><span class="n">parse_article</span><span class="p">,</span> <span class="n">dont_filter</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p>拿到链接后扔到队列，用<code class="language-plaintext highlighter-rouge">parse_article</code>解析。这里有个问题就是我在kindle4rss里遇到的问题，参考消息许多文章里面有分页，需要抓取分页的内容。部分分页是属于”延伸阅读”中的内容，不需要，排除。</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">def</span> <span class="nf">parse_article</span><span class="p">(</span><span class="n">self</span><span class="p">,</span> <span class="n">response</span><span class="p">):</span>
+        <span class="n">item</span> <span class="o">=</span> <span class="nc">KindleItem</span><span class="p">()</span>
+        <span class="n">item</span><span class="p">[</span><span class="sh">'</span><span class="s">resource</span><span class="sh">'</span><span class="p">]</span> <span class="o">=</span> <span class="sh">"</span><span class="s">参考消息国际版</span><span class="sh">"</span>
+
+        <span class="c1"># 内容解析
+</span>        <span class="n">item</span><span class="p">[</span><span class="sh">'</span><span class="s">title</span><span class="sh">'</span><span class="p">]</span> <span class="o">=</span> <span class="n">response</span><span class="p">.</span><span class="nf">xpath</span><span class="p">(</span><span class="sh">"</span><span class="s">//h1[contains(@class, </span><span class="sh">'</span><span class="s">YH</span><span class="sh">'</span><span class="s">)]/text()</span><span class="sh">"</span><span class="p">).</span><span class="nf">extract_first</span><span class="p">()</span>
+        <span class="n">item</span><span class="p">[</span><span class="sh">'</span><span class="s">content</span><span class="sh">'</span><span class="p">]</span> <span class="o">=</span> <span class="n">response</span><span class="p">.</span><span class="nf">xpath</span><span class="p">(</span><span class="sh">'</span><span class="s">//div[contains(@class, </span><span class="sh">"</span><span class="s">article-content</span><span class="sh">"</span><span class="s">)]</span><span class="sh">'</span><span class="p">).</span><span class="nf">extract_first</span><span class="p">()</span>
+        <span class="n">item</span><span class="p">[</span><span class="sh">'</span><span class="s">url</span><span class="sh">'</span><span class="p">]</span> <span class="o">=</span> <span class="n">response</span><span class="p">.</span><span class="n">url</span>
+
+        <span class="c1"># 排除延伸阅读
+</span>        <span class="k">if</span> <span class="sh">'</span><span class="s">延伸阅读</span><span class="sh">'</span> <span class="ow">in</span> <span class="n">item</span><span class="p">[</span><span class="sh">'</span><span class="s">content</span><span class="sh">'</span><span class="p">]</span> <span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="c1"># 获取下一页内容
+</span>        <span class="n">next_link</span> <span class="o">=</span> <span class="n">response</span><span class="p">.</span><span class="nf">xpath</span><span class="p">(</span><span class="sh">"</span><span class="s">//p[contains(@class, </span><span class="sh">'</span><span class="s">fz-16</span><span class="sh">'</span><span class="s">)]/strong/a/@href</span><span class="sh">"</span><span class="p">).</span><span class="nf">extract_first</span><span class="p">()</span>
+
+        <span class="nf">if</span><span class="p">(</span> <span class="n">next_link</span> <span class="p">):</span>
+            <span class="k">yield</span> <span class="n">scrapy</span><span class="p">.</span><span class="nc">Request</span><span class="p">(</span><span class="n">next_link</span><span class="p">,</span> <span class="n">self</span><span class="p">.</span><span class="n">parse_article</span><span class="p">,</span> <span class="n">dont_filter</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+
+        <span class="c1"># 进入管道处理
+</span>        <span class="k">yield</span> <span class="n">item</span>
+</code></pre></div></div>
+<h3 id="管道处理">管道处理</h3>
+
+<p>Scrapy抓取到的内容都扔进管道，在<code class="language-plaintext highlighter-rouge">pipeline</code>中处理。通常抓取都是用数据库存储，这里为了配合后面制作电子书，按gitbook规定的格式，创建md文件即可<sup id="fnref:1" role="doc-noteref"><a href="#fn:1" class="footnote" rel="footnote">1</a></sup>。</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">class</span> <span class="nc">KindlePipeline</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">process_item</span><span class="p">(</span><span class="n">self</span><span class="p">,</span> <span class="n">item</span><span class="p">,</span> <span class="n">spider</span><span class="p">):</span>
+        <span class="n">date</span> <span class="o">=</span> <span class="n">datetime</span><span class="p">.</span><span class="n">datetime</span><span class="p">.</span><span class="nf">strftime</span><span class="p">(</span><span class="n">datetime</span><span class="p">.</span><span class="n">datetime</span><span class="p">.</span><span class="nf">now</span><span class="p">(),</span> <span class="sh">"</span><span class="s">%Y%m%d</span><span class="sh">"</span><span class="p">)</span>
+
+        <span class="n">d</span> <span class="o">=</span> <span class="n">sys</span><span class="p">.</span><span class="n">path</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="sh">"</span><span class="s">/posts/</span><span class="sh">"</span> <span class="o">+</span> <span class="n">date</span> <span class="o">+</span> <span class="sh">"</span><span class="s">/</span><span class="sh">"</span>
+
+        <span class="c1"># 提取文章url中文件名不带后缀不带分页（_1）的部分作为文件名，同时作为是否是同一篇文章的判断。
+</span>        <span class="n">result</span> <span class="o">=</span> <span class="n">re</span><span class="p">.</span><span class="nf">findall</span><span class="p">(</span><span class="sa">r</span><span class="sh">'</span><span class="s">(?&lt;=\/)(\d+)(_\d+)?(?=.shtml)</span><span class="sh">'</span><span class="p">,</span> <span class="n">item</span><span class="p">[</span><span class="sh">"</span><span class="s">url</span><span class="sh">"</span><span class="p">])</span>
+        <span class="n">filename</span> <span class="o">=</span> <span class="n">result</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+        <span class="c1"># 如果不带分页后缀，创建文件，写入标题内容，同时写入SUMMARY文件。
+</span>        <span class="nf">if </span><span class="p">(</span> <span class="ow">not</span> <span class="n">result</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="ow">or</span> <span class="n">result</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="sh">""</span> <span class="p">):</span>
+            <span class="n">f</span> <span class="o">=</span> <span class="nf">open</span><span class="p">(</span><span class="n">d</span> <span class="o">+</span> <span class="n">filename</span> <span class="o">+</span> <span class="sh">'</span><span class="s">.md</span><span class="sh">'</span><span class="p">,</span> <span class="sh">'</span><span class="s">w</span><span class="sh">'</span><span class="p">)</span>
+            <span class="n">f</span><span class="p">.</span><span class="nf">write</span><span class="p">(</span><span class="sh">'</span><span class="s"># </span><span class="sh">'</span> <span class="o">+</span> <span class="n">item</span><span class="p">[</span><span class="sh">"</span><span class="s">title</span><span class="sh">"</span><span class="p">]</span> <span class="o">+</span> <span class="sh">'</span><span class="se">\n\n</span><span class="sh">'</span><span class="p">)</span>
+            <span class="n">f</span><span class="p">.</span><span class="nf">write</span><span class="p">(</span><span class="n">item</span><span class="p">[</span><span class="sh">"</span><span class="s">content</span><span class="sh">"</span><span class="p">])</span>
+            <span class="n">f</span><span class="p">.</span><span class="nf">close</span><span class="p">()</span>
+            <span class="n">summary</span> <span class="o">=</span> <span class="nf">open</span><span class="p">(</span><span class="n">d</span> <span class="o">+</span> <span class="sh">'</span><span class="s">SUMMARY.md</span><span class="sh">'</span><span class="p">,</span> <span class="sh">'</span><span class="s">a+</span><span class="sh">'</span><span class="p">)</span>
+            <span class="n">summary</span><span class="p">.</span><span class="nf">write</span><span class="p">(</span><span class="sh">'</span><span class="s">* [</span><span class="sh">'</span> <span class="o">+</span> <span class="n">item</span><span class="p">[</span><span class="sh">'</span><span class="s">title</span><span class="sh">'</span><span class="p">]</span> <span class="o">+</span> <span class="sh">'</span><span class="s">](</span><span class="sh">'</span> <span class="o">+</span> <span class="n">filename</span> <span class="o">+</span> <span class="sh">'</span><span class="s">.md)</span><span class="se">\n</span><span class="sh">'</span><span class="p">)</span>
+            <span class="n">summary</span><span class="p">.</span><span class="nf">close</span><span class="p">()</span>
+        <span class="c1"># 否则在原有文件后面追加内容
+</span>        <span class="k">else</span><span class="p">:</span>
+            <span class="n">f</span> <span class="o">=</span> <span class="nf">open</span><span class="p">(</span><span class="n">d</span> <span class="o">+</span> <span class="n">filename</span> <span class="o">+</span> <span class="sh">'</span><span class="s">.md</span><span class="sh">'</span><span class="p">,</span> <span class="sh">'</span><span class="s">a+</span><span class="sh">'</span><span class="p">)</span>
+            <span class="n">f</span><span class="p">.</span><span class="nf">write</span><span class="p">(</span><span class="n">item</span><span class="p">[</span><span class="sh">"</span><span class="s">content</span><span class="sh">"</span><span class="p">])</span>
+            <span class="n">f</span><span class="p">.</span><span class="nf">close</span><span class="p">()</span>
+<span class="k">return</span>
+</code></pre></div></div>
+
+<h2 id="制作电子书">制作电子书</h2>
+
+<p>gitbook一行命令搞定：</p>
+
+<div class="language-sh highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>gitbook mobi ./ book.mobi
+</code></pre></div></div>
+
+<h2 id="推送">推送</h2>
+
+<p><code class="language-plaintext highlighter-rouge">mutt</code> 加 <code class="language-plaintext highlighter-rouge">msmtp</code> 代理邮箱向kindle发送邮件。</p>
+
+<p>整体用 <code class="language-plaintext highlighter-rouge">shell</code> 脚本串联起来，用 <code class="language-plaintext highlighter-rouge">crontab</code> 每天定时执行。</p>
+
+<div class="language-sh highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c">#!/bin/bash</span>
+
+<span class="nv">ls_date</span><span class="o">=</span><span class="sb">`</span><span class="nb">date</span> +%Y%m%d<span class="sb">`</span>
+
+<span class="nb">cd </span>posts
+<span class="nb">mkdir</span> <span class="k">${</span><span class="nv">ls_date</span><span class="k">}</span>
+<span class="nb">cd</span> <span class="k">${</span><span class="nv">ls_date</span><span class="k">}</span>
+gitbook init
+
+<span class="nb">echo</span> <span class="s2">"{</span><span class="se">\"</span><span class="s2">title</span><span class="se">\"</span><span class="s2">: </span><span class="se">\"</span><span class="s2">kindle推送-</span><span class="k">${</span><span class="nv">ls_date</span><span class="k">}</span><span class="se">\"</span><span class="s2">}"</span> <span class="o">&gt;&gt;</span> book.json
+
+<span class="nb">cd</span> ../..
+/usr/local/bin/scrapy crawl ckxx
+
+<span class="nb">cd </span>posts
+<span class="nb">cd</span> <span class="k">${</span><span class="nv">ls_date</span><span class="k">}</span>
+gitbook mobi ./ ./../../ebooks/<span class="k">${</span><span class="nv">ls_date</span><span class="k">}</span>.mobi
+
+<span class="nb">cd</span> ../..
+<span class="nb">echo</span> <span class="s2">"kindle推送-</span><span class="k">${</span><span class="nv">ls_date</span><span class="k">}</span><span class="s2">"</span> | mutt <span class="nt">-s</span> <span class="s2">"kindle推送-</span><span class="k">${</span><span class="nv">ls_date</span><span class="k">}</span><span class="s2">"</span> icily0719@kindle.cn <span class="nt">-a</span> <span class="s2">"ebooks/</span><span class="k">${</span><span class="nv">ls_date</span><span class="k">}</span><span class="s2">.mobi"</span>
+</code></pre></div></div>
+
+<h2 id="问题">问题</h2>
+
+<p>没有异常处理机制——懒得做！</p>
+
+<p><strong>完整代码：</strong> <a href="https://github.com/erlzhang/kindlepush">kindlepush</a></p>
+
+<div class="footnotes" role="doc-endnotes">
+  <ol>
+    <li id="fn:1" role="doc-endnote">
+      <p>md文件里带有html标签，markdown是可以正常解析的。 <a href="#fnref:1" class="reversefootnote" role="doc-backlink">↩</a></p>
+    </li>
+  </ol>
+</div>
+
+    </div>
+  </article><aside class="post__contact"><h4><a href="/about.html">Jekyll 主题 Persephone</a></h4>
+  <p>jekyll-theme-persephone Demo演示站</p>
+<div class="icon__list"><a href="mailto:zhangshiyu1992@hotmail.com" class="icon__link" target="_blank"><svg class="icon__stroke" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+  <polyline points="22,6 12,13 2,6"></polyline>
+</svg>
+</a><a href="https://github.com/erlzhang" class="icon__link" target="_blank"><svg viewBox="0 0 64 64" class="icon__fill">
+  <path stroke-width="0" d="M32 0 C14 0 0 14 0 32 0 53 19 62 22 62 24 62 24 61 24 60 L24 55 C17 57 14 53 13 50 13 50 13 49 11 47 10 46 6 44 10 44 13 44 15 48 15 48 18 52 22 51 24 50 24 48 26 46 26 46 18 45 12 42 12 31 12 27 13 24 15 22 15 22 13 18 15 13 15 13 20 13 24 17 27 15 37 15 40 17 44 13 49 13 49 13 51 20 49 22 49 22 51 24 52 27 52 31 52 42 45 45 38 46 39 47 40 49 40 52 L40 60 C40 61 40 62 42 62 45 62 64 53 64 32 64 14 50 0 32 0 Z" />
+</svg>
+</a></div>
+</aside>
+</main><script>hljs.initHighlightingOnLoad();</script><footer class="site-footer">
+  © 2024<a href="/">Jekyll 主题 Persephone</a>. Theme<a href="https://github.com/erlzhang/jekyll-theme-persephone" target="_blank">Persephone</a>
+</footer>
+
+  </body>
+</html>
