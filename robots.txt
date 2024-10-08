@@ -1,1 +1,1 @@
-Sitemap: https://erl.im/sitemap.xml
+Sitemap: https://erl.im/books/sitemap.xml
